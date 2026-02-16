@@ -1,21 +1,31 @@
 @PACKAGE_INIT@
 
-set(CAESAR_ZSTD_LIBRARY "@ZSTD_LIBRARY@")
-set(CAESAR_ZSTD_INCLUDE_DIR "@ZSTD_INCLUDE_DIR@")
-
 include(CMakeFindDependencyMacro)
 
 find_dependency(Torch REQUIRED)
 
+
 if(NOT TARGET zstd_target)
-    if(EXISTS "${CAESAR_ZSTD_LIBRARY}")
-        add_library(zstd_target UNKNOWN IMPORTED)
-        set_target_properties(zstd_target PROPERTIES
-            IMPORTED_LOCATION "${CAESAR_ZSTD_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${CAESAR_ZSTD_INCLUDE_DIR}"
-        )
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ZSTD libzstd IMPORTED_TARGET)
+    endif()
+    
+    if(ZSTD_FOUND)
+        add_library(zstd_target ALIAS PkgConfig::ZSTD)
     else()
-        message(FATAL_ERROR "CAESAR was built with Zstd at ${CAESAR_ZSTD_LIBRARY} but it's not found")
+        find_path(ZSTD_INCLUDE_DIR zstd.h)
+        find_library(ZSTD_LIBRARY NAMES zstd aocl_compression)
+        
+        if(ZSTD_INCLUDE_DIR AND ZSTD_LIBRARY)
+            add_library(zstd_target UNKNOWN IMPORTED)
+            set_target_properties(zstd_target PROPERTIES
+                IMPORTED_LOCATION "${ZSTD_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${ZSTD_INCLUDE_DIR}"
+            )
+        else()
+            message(FATAL_ERROR "Zstd library not found")
+        endif()
     endif()
 endif()
 
