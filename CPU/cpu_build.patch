@@ -1,8 +1,8 @@
 diff --git a/CAESAR/models/caesar_compress.cpp b/CAESAR/models/caesar_compress.cpp
-index 035cc1e..228a178 100644
+index 55fcb7c..5dc3b2d 100644
 --- a/CAESAR/models/caesar_compress.cpp
 +++ b/CAESAR/models/caesar_compress.cpp
-@@ -309,7 +309,7 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
+@@ -313,7 +313,7 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
  
        auto t1 = get_start_time();
        std::vector<torch::Tensor> outputs =
@@ -12,7 +12,7 @@ index 035cc1e..228a178 100644
        torch::Tensor q_hyper_latent = outputs[1];
        torch::Tensor hyper_indexes  = outputs[2];
 diff --git a/CAESAR_compressor.py b/CAESAR_compressor.py
-index be1bdc0..83d76fd 100644
+index be1bdc0..f8fa0c7 100644
 --- a/CAESAR_compressor.py
 +++ b/CAESAR_compressor.py
 @@ -385,7 +385,7 @@ model = CompressorMix(
@@ -20,7 +20,7 @@ index be1bdc0..83d76fd 100644
  state_dict = remove_module_prefix(torch.load('./pretrained/caesar_v.pt', map_location=device))
  model.load_state_dict(state_dict)
 -model = model.half()
-+model = model.foat()
++model = model.float()
  
  quantized_cdf, cdf_length, offset = model.entropy_model.prior._update(30)
  medians = model.entropy_model.prior.medians.detach()
