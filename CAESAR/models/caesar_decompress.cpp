@@ -200,7 +200,7 @@ torch::Tensor Decompressor::decompress(const unsigned int batch_size,
     torch::Tensor reshaped_latents = q_latent_with_offset.reshape(new_shape);
 
     std::vector<torch::Tensor> decompressor_outputs =
-        decompressor_model_->run({reshaped_latents.to(torch::kDouble)});
+        decompressor_model_->run({reshaped_latents.to(torch::kFloat32)});
     torch::Tensor raw_output = decompressor_outputs[0].to(torch::kFloat32);
 
 

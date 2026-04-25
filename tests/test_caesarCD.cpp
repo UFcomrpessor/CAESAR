@@ -168,7 +168,7 @@ size_t calculate_metadata_size(const CompressionResult& result) {
 int main() {
   try {
     
-    const std::vector<int64_t> shape = {1, 1, 20, 256, 256};
+    const std::vector<int64_t> shape = {1, 256, 256, 256, 256};
     const std::string raw_path = "TCf48.bin.f32";
     const std::string out_dir = "./output/";
 
@@ -190,7 +190,7 @@ int main() {
     bool force_padding = false;
 
     if (shape.size() >= 5 && shape[3] >= 128 && shape[4] >= 128) {
-        std::tie(raw_5d, padding_info) = to_5d_and_pad(raw, shape[3], shape[4], force_padding);
+      std::tie(raw_5d, padding_info) = to_5d_and_pad(raw, shape[3], shape[4], force_padding);
     } else if (shape.size() == 4 || shape.size() == 3) {
         std::tie(raw_5d, padding_info) = to_5d_and_pad(raw, 128, 128, force_padding);
     } else {
@@ -199,15 +199,15 @@ int main() {
 
     raw = torch::Tensor();
 
-    torch::Device compression_device = torch::Device(torch::kCPU);
-    torch::Device decompression_device = torch::Device(torch::kCPU);
+    torch::Device compression_device = torch::Device(torch::kCUDA);
+    torch::Device decompression_device = torch::Device(torch::kCUDA);
 
     std::cout << "\n===== COMPRESSION =====\n";
     Compressor compressor(compression_device);
 
     DatasetConfig config;
     config.memory_data = raw_5d;
-    config.device = torch::Device(torch::kCPU);
+    config.device = torch::Device(torch::kCUDA);
     config.variable_idx = 0;
     config.n_frame = n_frame;
     config.dataset_name = "TCf48 Dataset";
@@ -224,7 +224,7 @@ int main() {
 
     raw_5d = torch::Tensor();
 
-    float rel_eb = 0.001f;
+    float rel_eb = 0.1f;
     auto start_timeC = std::chrono::high_resolution_clock::now();
     CompressionResult comp = compressor.compress(config, batch_size, rel_eb);
     auto end_timeC = std::chrono::high_resolution_clock::now();
@@ -331,6 +331,10 @@ int main() {
     std::cout << "Compression Ratio (CR): " << CR << "\n";
     std::cout << "Decompression finished. Reconstructed data shape: " << restored.sizes() << "\n";
     std::cout << "\n  TEST PASSED: Compression and decompression completed successfully!\n";
+
+    
+    ModelCache& cache = ModelCache::instance();
+    cache.clear();
     return 0;
 
   } catch (const std::exception& e) {
