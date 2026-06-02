@@ -41,7 +41,7 @@ static void parallel_zero_fill(uint8_t* data, size_t size)
 {
     if (data == nullptr || size == 0) return;
 
-    unsigned nThreads = getcores();
+    unsigned nThreads = get_allocated_cores();
 
     const size_t minChunk = 64ULL * 1024 * 1024;
     if (size < minChunk || nThreads == 1) {
@@ -1460,14 +1460,14 @@ struct ByteView {
     size_t size;
 };
 
-std::pair<std::unique_ptr<CompressedData> , int64_t>
-PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainData)
+std::pair<std::unique_ptr<CompressedData>, int64_t>
+PCACompressor::compressLossless(const MetaData& metaData, const MainData& mainData)
 {
     auto compressedData = std::make_unique<CompressedData>();
 
     torch::Tensor processMaskPacked = bitsToBytesTensor(mainData.processMask);
-    torch::Tensor prefixMaskPacked = bitsToBytesTensor(mainData.prefixMask);
-    torch::Tensor maskLengthPacked = mainData.maskLength.contiguous();
+    torch::Tensor prefixMaskPacked  = bitsToBytesTensor(mainData.prefixMask);
+    torch::Tensor maskLengthPacked  = mainData.maskLength.contiguous();
 
     torch::Tensor coeffIntConverted;
     int64_t nUniqueVals = metaData.uniqueVals.size(0);
@@ -1481,96 +1481,16 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
         coeffIntConverted = mainData.coeffInt.to(torch::kInt32).contiguous();
 
     const size_t raw_process_mask_bytes = tensorByteSize(processMaskPacked);
-    const size_t raw_prefix_mask_bytes = tensorByteSize(prefixMaskPacked);
-    const size_t raw_mask_length_bytes = tensorByteSize(maskLengthPacked);
-    const size_t raw_coeff_int_bytes = tensorByteSize(coeffIntConverted);
+    const size_t raw_prefix_mask_bytes  = tensorByteSize(prefixMaskPacked);
+    const size_t raw_mask_length_bytes  = tensorByteSize(maskLengthPacked);
+    const size_t raw_coeff_int_bytes    = tensorByteSize(coeffIntConverted);
 
-    std::vector<uint8_t> processMaskCompressed, prefixMaskCompressed, maskLengthCompressed, coeffIntCompressed;
-    std::vector<size_t> compressedSizes;
-
-    std::vector<uint8_t> cpuProcess, cpuPrefix, cpuMaskLength, cpuCoeffInt;
-    std::vector<size_t> cpuSizes;
-
-    auto run_cpu_zstd = [&]() {
-        torch::Tensor maskLengthBytes = torch::from_blob(
-            maskLengthPacked.data_ptr(),
-            {static_cast<int64_t>(raw_mask_length_bytes)},
-            torch::TensorOptions().dtype(torch::kUInt8).device(maskLengthPacked.device()));
-
-        torch::Tensor coeffIntBytes = torch::from_blob(
-            coeffIntConverted.data_ptr(),
-            {static_cast<int64_t>(raw_coeff_int_bytes)},
-            torch::TensorOptions().dtype(torch::kUInt8).device(coeffIntConverted.device()));
-
-        torch::Tensor allBytesCpu = torch::cat(
-            {processMaskPacked, prefixMaskPacked, maskLengthBytes, coeffIntBytes}, 0)
-            .cpu()
-            .contiguous();
-
-        const uint8_t* base = allBytesCpu.data_ptr<uint8_t>();
-        ByteView processMaskView{base, raw_process_mask_bytes};
-        ByteView prefixMaskView{processMaskView.data + processMaskView.size, raw_prefix_mask_bytes};
-        ByteView maskLengthView{prefixMaskView.data + prefixMaskView.size, raw_mask_length_bytes};
-        ByteView coeffIntView{maskLengthView.data + maskLengthView.size, raw_coeff_int_bytes};
-
-        int compressionLevel = 3;
- 
-        auto zstd_compress_mt = [&](ByteView in, std::vector<uint8_t>& out,
-                                    int level, int workers) -> size_t
-        {
-            if (in.size == 0) {
-                out.clear();
-                return 0;
-            }
-
-#if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10400)
-            throw std::runtime_error("zstd too old: need >= 1.4.0 for multithread");
-#endif
-
-            ZSTD_CCtx* cctx = ZSTD_createCCtx();
-            if (!cctx) throw std::runtime_error("ZSTD_createCCtx failed");
-
-            size_t s1 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, workers);
-            if (ZSTD_isError(s1)) {
-                ZSTD_freeCCtx(cctx);
-                throw std::runtime_error(std::string("ZSTD_c_nbWorkers set failed: ") + ZSTD_getErrorName(s1));
-            }
-
-            size_t s2 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, level);
-            if (ZSTD_isError(s2)) {
-                ZSTD_freeCCtx(cctx);
-                throw std::runtime_error(std::string("ZSTD_c_compressionLevel set failed: ") + ZSTD_getErrorName(s2));
-            }
-
-            out.resize(ZSTD_compressBound(in.size));
-            size_t compSize = ZSTD_compress2(cctx, out.data(), out.size(), in.data, in.size);
-            ZSTD_freeCCtx(cctx);
-
-            if (ZSTD_isError(compSize))
-                throw std::runtime_error(std::string("zstd compress2 failed: ") + ZSTD_getErrorName(compSize));
-
-            out.resize(compSize);
-            return compSize;
-        };
-
-        int workers = get_allocated_cores();
-
-        size_t processMaskCompSize = zstd_compress_mt(processMaskView, cpuProcess, compressionLevel, workers);
-        size_t prefixMaskCompSize = zstd_compress_mt(prefixMaskView, cpuPrefix, compressionLevel, workers);
-        size_t maskLengthCompSize = zstd_compress_mt(maskLengthView, cpuMaskLength, compressionLevel, workers);
-        size_t coeffIntCompSize = zstd_compress_mt(coeffIntView, cpuCoeffInt, compressionLevel, workers);
-
-        cpuSizes = {processMaskCompSize, prefixMaskCompSize, maskLengthCompSize, coeffIntCompSize};
-    };
-
-    std::vector<uint8_t> nvProcess, nvPrefix, nvMaskLength, nvCoeffInt;
-    std::vector<size_t> nvSizes;
-
-    bool useNvcomp = false;
+    std::vector<uint8_t> processMaskCompressed, prefixMaskCompressed,
+                         maskLengthCompressed,  coeffIntCompressed;
+    std::vector<size_t>  compressedSizes;
 
 #if defined(USE_CUDA) && defined(ENABLE_NVCOMP)
-    useNvcomp = true;
-    auto run_nvcomp = [&]() {
+    if (device_.is_cuda()) {
         torch::Tensor maskLengthBytes = torch::from_blob(
             maskLengthPacked.data_ptr(),
             {static_cast<int64_t>(raw_mask_length_bytes)},
@@ -1587,7 +1507,6 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
             maskLengthBytes.data_ptr<uint8_t>(),
             coeffIntBytes.data_ptr<uint8_t>()
         };
-
         std::vector<size_t> rawSizes = {
             raw_process_mask_bytes,
             raw_prefix_mask_bytes,
@@ -1597,61 +1516,116 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
 
         auto batchResults = nvcomp_batch_device_compress(ptrs, rawSizes);
 
-        nvProcess = std::move(batchResults[0].compressed);
-        nvPrefix = std::move(batchResults[1].compressed);
-        nvMaskLength = std::move(batchResults[2].compressed);
-        nvCoeffInt = std::move(batchResults[3].compressed);
-
-        nvSizes = {nvProcess.size(), nvPrefix.size(), nvMaskLength.size(), nvCoeffInt.size()};
-    };
-
-          compressedSizes = nvcomp_batch_device_compress(
-              ptrs, rawSizes, compressedData->data);
+        processMaskCompressed = std::move(batchResults[0].compressed);
+        prefixMaskCompressed  = std::move(batchResults[1].compressed);
+        maskLengthCompressed  = std::move(batchResults[2].compressed);
+        coeffIntCompressed    = std::move(batchResults[3].compressed);
+        compressedSizes = {
+            processMaskCompressed.size(),
+            prefixMaskCompressed.size(),
+            maskLengthCompressed.size(),
+            coeffIntCompressed.size()
+        };
+    } else
 #endif
-        if (!useNvcomp) {
-        run_cpu_zstd();
-      
-        processMaskCompressed = std::move(cpuProcess);
-        prefixMaskCompressed = std::move(cpuPrefix);
-        maskLengthCompressed = std::move(cpuMaskLength);
-        coeffIntCompressed = std::move(cpuCoeffInt);
-        compressedSizes = cpuSizes;
+    {
+        // CPU zstd path
+        torch::Tensor maskLengthBytes = torch::from_blob(
+            maskLengthPacked.data_ptr(),
+            {static_cast<int64_t>(raw_mask_length_bytes)},
+            torch::TensorOptions().dtype(torch::kUInt8).device(maskLengthPacked.device()));
 
-        const size_t totalCompressedBytes =
-            processMaskCompressed.size() +
-            prefixMaskCompressed.size() +
-            maskLengthCompressed.size() +
-            coeffIntCompressed.size();
+        torch::Tensor coeffIntBytes = torch::from_blob(
+            coeffIntConverted.data_ptr(),
+            {static_cast<int64_t>(raw_coeff_int_bytes)},
+            torch::TensorOptions().dtype(torch::kUInt8).device(coeffIntConverted.device()));
 
-        compressedData->data.clear();
-        compressedData->data.resize(4 * sizeof(size_t) + totalCompressedBytes);
+        torch::Tensor allBytesCpu = torch::cat(
+            {processMaskPacked, prefixMaskPacked, maskLengthBytes, coeffIntBytes}, 0)
+            .cpu().contiguous();
 
-        uint8_t* out = compressedData->data.data();
-        for (size_t size : compressedSizes) {
-            for (int i = 0; i < 8; ++i) {
-                *out++ = static_cast<uint8_t>((size >> (i * 8)) & 0xFF);
+        const uint8_t* base = allBytesCpu.data_ptr<uint8_t>();
+        ByteView processMaskView{base,                              raw_process_mask_bytes};
+        ByteView prefixMaskView {processMaskView.data + processMaskView.size, raw_prefix_mask_bytes};
+        ByteView maskLengthView {prefixMaskView.data  + prefixMaskView.size,  raw_mask_length_bytes};
+        ByteView coeffIntView   {maskLengthView.data  + maskLengthView.size,  raw_coeff_int_bytes};
+
+        int compressionLevel = 3;
+
+        auto zstd_compress_mt = [&](ByteView in, std::vector<uint8_t>& out,
+                                    int level, int workers) -> size_t
+        {
+            if (in.size == 0) { out.clear(); return 0; }
+
+#if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10400)
+            throw std::runtime_error("zstd too old: need >= 1.4.0 for multithread");
+#endif
+            ZSTD_CCtx* cctx = ZSTD_createCCtx();
+            if (!cctx) throw std::runtime_error("ZSTD_createCCtx failed");
+
+            size_t s1 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, workers);
+            if (ZSTD_isError(s1)) {
+                ZSTD_freeCCtx(cctx);
+                throw std::runtime_error(std::string("ZSTD_c_nbWorkers set failed: ")
+                                         + ZSTD_getErrorName(s1));
             }
-        }
+            size_t s2 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, level);
+            if (ZSTD_isError(s2)) {
+                ZSTD_freeCCtx(cctx);
+                throw std::runtime_error(std::string("ZSTD_c_compressionLevel set failed: ")
+                                         + ZSTD_getErrorName(s2));
+            }
 
-        std::memcpy(out, processMaskCompressed.data(), processMaskCompressed.size());
-        out += processMaskCompressed.size();
+            out.resize(ZSTD_compressBound(in.size));
+            size_t compSize = ZSTD_compress2(cctx, out.data(), out.size(), in.data, in.size);
+            ZSTD_freeCCtx(cctx);
+            if (ZSTD_isError(compSize))
+                throw std::runtime_error(std::string("zstd compress2 failed: ")
+                                         + ZSTD_getErrorName(compSize));
+            out.resize(compSize);
+            return compSize;
+        };
 
-        std::memcpy(out, prefixMaskCompressed.data(), prefixMaskCompressed.size());
-        out += prefixMaskCompressed.size();
+        int workers = get_allocated_cores();
+        zstd_compress_mt(processMaskView, processMaskCompressed, compressionLevel, workers);
+        zstd_compress_mt(prefixMaskView,  prefixMaskCompressed,  compressionLevel, workers);
+        zstd_compress_mt(maskLengthView,  maskLengthCompressed,  compressionLevel, workers);
+        zstd_compress_mt(coeffIntView,    coeffIntCompressed,    compressionLevel, workers);
+        compressedSizes = {
+            processMaskCompressed.size(),
+            prefixMaskCompressed.size(),
+            maskLengthCompressed.size(),
+            coeffIntCompressed.size()
+        };
+    }
 
-        std::memcpy(out, maskLengthCompressed.data(), maskLengthCompressed.size());
-        out += maskLengthCompressed.size();
+    const size_t totalCompressedBytes =
+        processMaskCompressed.size() + prefixMaskCompressed.size() +
+        maskLengthCompressed.size()  + coeffIntCompressed.size();
 
-        std::memcpy(out, coeffIntCompressed.data(), coeffIntCompressed.size());
+    compressedData->data.resize(4 * sizeof(size_t) + totalCompressedBytes);
+
+    uint8_t* out = compressedData->data.data();
+    for (size_t sz : compressedSizes) {
+        for (int i = 0; i < 8; ++i)
+            *out++ = static_cast<uint8_t>((sz >> (i * 8)) & 0xFF);
+    }
+    std::memcpy(out, processMaskCompressed.data(), processMaskCompressed.size());
+    out += processMaskCompressed.size();
+    std::memcpy(out, prefixMaskCompressed.data(), prefixMaskCompressed.size());
+    out += prefixMaskCompressed.size();
+    std::memcpy(out, maskLengthCompressed.data(), maskLengthCompressed.size());
+    out += maskLengthCompressed.size();
+    std::memcpy(out, coeffIntCompressed.data(), coeffIntCompressed.size());
 
     compressedData->coeffIntBytes = raw_coeff_int_bytes;
-    compressedData->dataBytes = compressedData->data.size();
-    }
+    compressedData->dataBytes     = compressedData->data.size();
+
     return {std::move(compressedData), compressedData->dataBytes};
 }
 
 MainData PCACompressor::decompressLossless(
-    const MetaData& metaData , const CompressedData& compressedData)
+    const MetaData& metaData, const CompressedData& compressedData)
 {
     MainData mainData;
     size_t offset = 0;
@@ -1672,19 +1646,17 @@ MainData PCACompressor::decompressLossless(
         compressedSizes[i] = size;
     }
 
+    const size_t processMaskOrigSize = (metaData.nVec + 7) / 8;
+    const size_t prefixMaskOrigSize  = (metaData.prefixLength + 7) / 8;
+    const size_t coeffIntOrigSize    = compressedData.coeffIntBytes;
 
 #if defined(USE_CUDA) && defined(ENABLE_NVCOMP)
-
-        size_t processMaskOrigSize = (metaData.nVec + 7) / 8;
-        size_t prefixMaskOrigSize  = (metaData.prefixLength + 7) / 8;
-        size_t coeffIntOrigSize    = compressedData.coeffIntBytes;
-
-        // ── Step 1: decompress processMask alone (we need it to compute maskLength's size) ──
+    if (device_.is_cuda()) {
+        // Step 1: processMask alone (need it to derive maskLength size)
         {
-            std::vector<const uint8_t*> ptrs         = { compressedData.data.data() + offset };
-            std::vector<size_t>         comp_sizes   = { compressedSizes[0] };
+            std::vector<const uint8_t*> ptrs       = { compressedData.data.data() + offset };
+            std::vector<size_t>         comp_sizes = { compressedSizes[0] };
             std::vector<size_t>         decomp_sizes = { processMaskOrigSize };
-
             auto res = nvcomp_batch_decompress(ptrs, comp_sizes, decomp_sizes);
             mainData.processMask = BitUtils::bytesToBits(res[0], metaData.nVec).to(device_);
         }
@@ -1692,7 +1664,7 @@ MainData PCACompressor::decompressLossless(
 
         int64_t numVecsProcessed = torch::sum(mainData.processMask).item<int64_t>();
 
-        // ── Step 2: batch decompress the remaining 3 (prefixMask, maskLength, coeffInt) ──
+        // Step 2: prefixMask + maskLength + coeffInt in one batch
         {
             std::vector<const uint8_t*> ptrs = {
                 compressedData.data.data() + offset,
@@ -1701,99 +1673,77 @@ MainData PCACompressor::decompressLossless(
             };
             std::vector<size_t> comp_sizes   = { compressedSizes[1], compressedSizes[2], compressedSizes[3] };
             std::vector<size_t> decomp_sizes = { prefixMaskOrigSize, (size_t)numVecsProcessed, coeffIntOrigSize };
-
             auto res = nvcomp_batch_decompress(ptrs, comp_sizes, decomp_sizes);
 
-            // prefixMask
             mainData.prefixMask = BitUtils::bytesToBits(res[0], metaData.prefixLength).to(device_);
 
-            // maskLength
             mainData.maskLength = torch::from_blob(res[1].data(),
                 { numVecsProcessed }, torch::kUInt8).clone().to(device_);
 
-            // coeffInt
             int64_t nUniqueVals = metaData.uniqueVals.size(0);
             torch::ScalarType coeffDtype;
             size_t elementSize;
-            if      (nUniqueVals == 0)    { coeffDtype = torch::kInt16;  elementSize = 2; }
-            else if (nUniqueVals < 256)   { coeffDtype = torch::kUInt8;  elementSize = 1; }
-            else if (nUniqueVals < 32768) { coeffDtype = torch::kInt16;  elementSize = 2; }
-            else                          { coeffDtype = torch::kInt32;  elementSize = 4; }
+            if      (nUniqueVals == 0)    { coeffDtype = torch::kInt16; elementSize = 2; }
+            else if (nUniqueVals < 256)   { coeffDtype = torch::kUInt8; elementSize = 1; }
+            else if (nUniqueVals < 32768) { coeffDtype = torch::kInt16; elementSize = 2; }
+            else                          { coeffDtype = torch::kInt32; elementSize = 4; }
 
             int64_t numElements = (int64_t)res[2].size() / (int64_t)elementSize;
             mainData.coeffInt = torch::empty({ numElements }, coeffDtype);
             std::memcpy(mainData.coeffInt.data_ptr(), res[2].data(), res[2].size());
             mainData.coeffInt = mainData.coeffInt.to(device_);
         }
-
-        return mainData; 
+        return mainData;
+    }
 #endif
 
-
-    // processMask
-    size_t processMaskOrigSize = (metaData.nVec + 7) / 8;
+    // CPU zstd path
     std::vector<uint8_t> processMaskVec(processMaskOrigSize);
     {
         CHECK_ZSTD_BLOCK("process_mask", offset, compressedSizes[0]);
-        size_t sz = ZSTD_decompress(
-            processMaskVec.data(), processMaskVec.size(),
-            compressedData.data.data() + offset, compressedSizes[0]);
-        if (ZSTD_isError(sz))
-            throw std::runtime_error("process_mask decompression failed");
+        size_t sz = ZSTD_decompress(processMaskVec.data(), processMaskVec.size(),
+                                    compressedData.data.data() + offset, compressedSizes[0]);
+        if (ZSTD_isError(sz)) throw std::runtime_error("process_mask decompression failed");
     }
     mainData.processMask = BitUtils::bytesToBits(processMaskVec, metaData.nVec).to(device_);
     offset += compressedSizes[0];
 
-    // prefixMask
-    size_t prefixMaskOrigSize = (metaData.prefixLength + 7) / 8;
     std::vector<uint8_t> prefixMaskVec(prefixMaskOrigSize);
     {
         CHECK_ZSTD_BLOCK("prefix_mask", offset, compressedSizes[1]);
-        size_t sz = ZSTD_decompress(
-            prefixMaskVec.data(), prefixMaskVec.size(),
-            compressedData.data.data() + offset, compressedSizes[1]);
-        if (ZSTD_isError(sz))
-            throw std::runtime_error("prefix_mask decompression failed");
+        size_t sz = ZSTD_decompress(prefixMaskVec.data(), prefixMaskVec.size(),
+                                    compressedData.data.data() + offset, compressedSizes[1]);
+        if (ZSTD_isError(sz)) throw std::runtime_error("prefix_mask decompression failed");
     }
     mainData.prefixMask = BitUtils::bytesToBits(prefixMaskVec, metaData.prefixLength).to(device_);
     offset += compressedSizes[1];
 
-    // maskLength
     int64_t numVecsProcessed = torch::sum(mainData.processMask).item<int64_t>();
     std::vector<uint8_t> maskLengthVec(numVecsProcessed);
     {
         CHECK_ZSTD_BLOCK("mask_length", offset, compressedSizes[2]);
-        size_t sz = ZSTD_decompress(
-            maskLengthVec.data(), maskLengthVec.size(),
-            compressedData.data.data() + offset, compressedSizes[2]);
-        if (ZSTD_isError(sz))
-            throw std::runtime_error("mask_length decompression failed");
+        size_t sz = ZSTD_decompress(maskLengthVec.data(), maskLengthVec.size(),
+                                    compressedData.data.data() + offset, compressedSizes[2]);
+        if (ZSTD_isError(sz)) throw std::runtime_error("mask_length decompression failed");
     }
     mainData.maskLength = torch::from_blob(maskLengthVec.data(),
         { numVecsProcessed }, torch::kUInt8).clone().to(device_);
     offset += compressedSizes[2];
 
-    // coeffInt
     int64_t nUniqueVals = metaData.uniqueVals.size(0);
     torch::ScalarType coeffDtype;
     size_t elementSize;
-    if      (nUniqueVals == 0)    { coeffDtype = torch::kInt16;  elementSize = sizeof(int16_t);  }
-    else if (nUniqueVals < 256)   { coeffDtype = torch::kUInt8;  elementSize = sizeof(uint8_t);  }
-    else if (nUniqueVals < 32768) { coeffDtype = torch::kInt16;  elementSize = sizeof(int16_t);  }
-    else                          { coeffDtype = torch::kInt32;  elementSize = sizeof(int32_t);  }
+    if      (nUniqueVals == 0)    { coeffDtype = torch::kInt16; elementSize = sizeof(int16_t); }
+    else if (nUniqueVals < 256)   { coeffDtype = torch::kUInt8; elementSize = sizeof(uint8_t); }
+    else if (nUniqueVals < 32768) { coeffDtype = torch::kInt16; elementSize = sizeof(int16_t); }
+    else                          { coeffDtype = torch::kInt32; elementSize = sizeof(int32_t); }
 
-    size_t coeffIntOrigSize = compressedData.coeffIntBytes;
     std::vector<uint8_t> coeffIntVec(coeffIntOrigSize);
     {
         CHECK_ZSTD_BLOCK("coeff_int", offset, compressedSizes[3]);
-        auto p   = compressedData.data.data() + offset;
-        auto fsz = ZSTD_getFrameContentSize(p, compressedSizes[3]);
-
-        size_t sz = ZSTD_decompress(
-            coeffIntVec.data(), coeffIntVec.size(),
-            compressedData.data.data() + offset, compressedSizes[3]);
-        if (ZSTD_isError(sz))
-            throw std::runtime_error("coeff_int decompression failed");
+        size_t sz = ZSTD_decompress(coeffIntVec.data(), coeffIntVec.size(),
+                                    compressedData.data.data() + offset, compressedSizes[3]);
+        if (ZSTD_isError(sz)) throw std::runtime_error("coeff_int decompression failed");
     }
 
     int64_t numElements = (int64_t)coeffIntVec.size() / (int64_t)elementSize;
