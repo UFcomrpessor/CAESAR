@@ -1842,8 +1842,13 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
     if (use_nvcomp) {
         std::cout << "[GAE Coeff Compression] NVCOMP ZSTD batched with all raw inputs on GPU\n";
 #if defined(USE_CUDA) && defined(ENABLE_NVCOMP)
-          run_nvcomp_direct_payload();
-          printLosslessProfile("nvcomp_direct_payload");
+          run_nvcomp();
+          printLosslessProfile("nvcomp_batch_compress");
+          processMaskCompressed = std::move(nvProcess);
+          prefixMaskCompressed = std::move(nvPrefix);
+          maskLengthCompressed = std::move(nvMaskLength);
+          coeffIntCompressed = std::move(nvCoeffInt);
+          compressedSizes = nvSizes;
 #else
         throw std::runtime_error("nvCOMP requested but nvCOMP is not enabled");
 #endif

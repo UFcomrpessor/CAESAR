@@ -1,4 +1,6 @@
 #include "caesar_compress.h"
+#include <cstdlib>
+#include <fstream>
 #include "range_coder/rans_coder.hpp"
 #include "runGaeCuda.h" 
 #include "model_utils.h"
@@ -6,6 +8,8 @@
 #include <fstream>
 #include <cmath>
 #include <limits>
+#include <chrono>
+#include <unordered_map>
 #include <utility>
 #ifdef USE_CUDA
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -492,6 +496,47 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
 
   torch::Tensor recon_deblk =
       deblockHW(recon_tensor, block_info_1, block_info_2, block_info_3);
+
+  const char* export_base_recon_path =
+      std::getenv("CAESAR_RESIDUAL_BASE_RECON_BIN");
+  const char* export_latent_bit_path =
+      std::getenv("CAESAR_RESIDUAL_LATENT_BIT_TXT");
+
+  if (export_base_recon_path && export_base_recon_path[0] != '\0') {
+    torch::Tensor base_cpu =
+        recon_deblk.detach().to(torch::kCPU).contiguous().to(torch::kFloat32);
+
+    std::ofstream out(export_base_recon_path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(base_cpu.data_ptr<float>()),
+              base_cpu.numel() * sizeof(float));
+    out.close();
+
+    std::cerr << "[CAESAR RESIDUAL EXPORT] wrote base reconstruction: "
+              << export_base_recon_path << " elements=" << base_cpu.numel()
+              << "\n";
+  }
+
+  if (export_latent_bit_path && export_latent_bit_path[0] != '\0') {
+    uint64_t latent_bit = 0;
+    for (const auto& encoded : result.encoded_latents) {
+      latent_bit += static_cast<uint64_t>(encoded.size()) * 8;
+    }
+    for (const auto& encoded : result.encoded_hyper_latents) {
+      latent_bit += static_cast<uint64_t>(encoded.size()) * 8;
+    }
+
+    std::ofstream out(export_latent_bit_path);
+    out << latent_bit << "\n";
+    out.close();
+
+    std::cerr << "[CAESAR RESIDUAL EXPORT] wrote latent_bit="
+              << latent_bit << " to " << export_latent_bit_path << "\n";
+  }
+
+  if (std::getenv("CAESAR_RESIDUAL_BASE_ONLY")) {
+    return result;
+  }
+
   recon_tensor = torch::Tensor();
 #ifdef USE_CUDA
   c10::cuda::CUDACachingAllocator::emptyCache();

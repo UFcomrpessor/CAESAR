@@ -1,0 +1,14 @@
+Current caesar_lbrc_nvcomp is correctness-only:
+- It uses nvCOMP LZ4 per bitplane stream.
+- It is slower than Zstd due to many tiny GPU launches and cudaMalloc/cudaFree calls.
+- Small ERA5 result:
+  Zstd:       CR 5.67239, LBRC time 0.294 s
+  nvCOMP LZ4: CR 4.85052, LBRC time 1.061 s
+
+Next implementation:
+1. Refactor encodeBlock to produce packed bitplanes without compressing.
+2. Collect all packed bitplanes across blocks into one vector/list.
+3. Use one nvcompBatchedLZ4CompressAsync call for all streams.
+4. Scatter compressed outputs back into block.streams.
+5. Similarly batch decompress all streams in decode().
+6. Then compare against Python and C++ Zstd across all datasets/error bounds.

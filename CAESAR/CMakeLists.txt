@@ -65,6 +65,10 @@ set(CAESAR_SRC
     models/range_coder/rans_coder.cpp
     models/caesar_compress.cpp
     models/caesar_decompress.cpp
+    models/lbrc.cpp
+    models/lbrc_nvcomp.cpp
+    models/lbrc_nvcomp_batched.cpp
+    models/lbrc_nvcomp_zstd_batched.cpp
     models/model_utils.cpp
     models/runGaeCuda.cpp
     models/gaeFusedKernels.cu
@@ -103,9 +107,11 @@ target_include_directories(caesar_lib
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/models>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/range_coder>
         $<INSTALL_INTERFACE:include/caesar>
+    PRIVATE
+        /home/sa.nandikanti/local/nvcomp/include
 )
 
-target_link_libraries(caesar_lib PUBLIC zstd_target torch)
+target_link_libraries(caesar_lib PUBLIC zstd_target torch /home/sa.nandikanti/local/nvcomp/lib/libnvcomp.so)
 
 if(USE_CUDA)
     if(CUDA_FOUND)
@@ -139,6 +145,12 @@ set_target_properties(caesar_lib PROPERTIES
     VERSION 1.0.0
     SOVERSION 1
 )
+
+add_executable(caesar_lbrc tools/caesar_lbrc.cpp)
+target_link_libraries(caesar_lbrc PRIVATE caesar_lib)
+
+install(TARGETS caesar_lbrc
+    RUNTIME DESTINATION bin)
 
 
 add_executable(caesar CAESAR.cpp)
@@ -195,3 +207,38 @@ message(STATUS "CLI Executable:    caesar")
 message(STATUS "Install Prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "========================================")
 message(STATUS "")
+
+
+add_executable(caesar_lbrc_nvcomp tools/caesar_lbrc_nvcomp.cpp)
+target_link_libraries(caesar_lbrc_nvcomp PRIVATE caesar_lib)
+
+install(TARGETS caesar_lbrc_nvcomp
+    RUNTIME DESTINATION bin)
+
+
+add_executable(caesar_lbrc_nvcomp_batched tools/caesar_lbrc_nvcomp_batched.cpp)
+target_link_libraries(caesar_lbrc_nvcomp_batched PRIVATE caesar_lib)
+
+install(TARGETS caesar_lbrc_nvcomp_batched
+    RUNTIME DESTINATION bin)
+
+
+add_executable(caesar_lbrc_nvcomp_zstd_batched tools/caesar_lbrc_nvcomp_zstd_batched.cpp)
+target_link_libraries(caesar_lbrc_nvcomp_zstd_batched PRIVATE caesar_lib)
+
+install(TARGETS caesar_lbrc_nvcomp_zstd_batched
+    RUNTIME DESTINATION bin)
+
+
+add_executable(caesar_gae_bench tools/caesar_gae_bench.cpp)
+target_link_libraries(caesar_gae_bench PRIVATE caesar_lib)
+
+install(TARGETS caesar_gae_bench
+    RUNTIME DESTINATION bin)
+
+
+add_executable(runGAE tools/runGAE.cpp)
+target_link_libraries(runGAE PRIVATE caesar_lib)
+
+install(TARGETS runGAE
+    RUNTIME DESTINATION bin)

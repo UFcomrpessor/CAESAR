@@ -1919,13 +1919,23 @@ MainData PCACompressor::decompressLossless(
     MainData mainData;
     size_t offset = 0;
 
-    #define CHECK_ZSTD_BLOCK(name, off, csz) do { \
-      if ((off) + (csz) > compressedData.data.size()) \
-        throw std::runtime_error(std::string("OOB block: ") + (name)); \
-      const uint8_t* p = compressedData.data.data() + (off); \
-      std::printf("[DBG] %s off=%zu csz=%zu magic=%02x %02x %02x %02x\n", \
-                  (name), (size_t)(off), (size_t)(csz), p[0], p[1], p[2], p[3]); \
-    } while(0)
+    auto countPackedBits = [](const std::vector<uint8_t>& bytes, int64_t nbits) -> int64_t {
+        int64_t count = 0;
+        const int64_t fullBytes = nbits / 8;
+        const int64_t remBits = nbits % 8;
+
+        for (int64_t i = 0; i < fullBytes; ++i) {
+            count += __builtin_popcount(static_cast<unsigned int>(bytes[i]));
+        }
+
+        if (remBits && fullBytes < static_cast<int64_t>(bytes.size())) {
+            const uint8_t mask = static_cast<uint8_t>(0xFFu << (8 - remBits));
+            count += __builtin_popcount(static_cast<unsigned int>(bytes[fullBytes] & mask));
+        }
+
+        return count;
+    };
+    #define CHECK_ZSTD_BLOCK(name, off, csz) do { } while(0)
 
     std::vector<size_t> compressedSizes(4);
     for (int i = 0; i < 4; ++i) {
@@ -1948,19 +1958,19 @@ MainData PCACompressor::decompressLossless(
         size_t processMaskOrigSize = (metaData.nVec + 7) / 8;
         size_t prefixMaskOrigSize  = (metaData.prefixLength + 7) / 8;
         size_t coeffIntOrigSize    = compressedData.coeffIntBytes;
+        int64_t numVecsProcessed = 0;
 
-        // ── Step 1: decompress processMask alone (we need it to compute maskLength's size) ──
+        // Step 1: decompress processMask alone (we need it to compute maskLength's size) ──
         {
             std::vector<const uint8_t*> ptrs         = { compressedData.data.data() + offset };
             std::vector<size_t>         comp_sizes   = { compressedSizes[0] };
             std::vector<size_t>         decomp_sizes = { processMaskOrigSize };
 
             auto res = nvcomp_batch_decompress(ptrs, comp_sizes, decomp_sizes);
+            numVecsProcessed = countPackedBits(res[0], metaData.nVec);
             mainData.processMask = BitUtils::bytesToBits(res[0], metaData.nVec).to(device_);
         }
         offset += compressedSizes[0];
-
-        int64_t numVecsProcessed = torch::sum(mainData.processMask).item<int64_t>();
 
         // ── Step 2: batch decompress the remaining 3 (prefixMask, maskLength, coeffInt) ──
         {
@@ -1978,8 +1988,11 @@ MainData PCACompressor::decompressLossless(
             mainData.prefixMask = BitUtils::bytesToBits(res[0], metaData.prefixLength).to(device_);
 
             // maskLength
-            mainData.maskLength = torch::from_blob(res[1].data(),
-                { numVecsProcessed }, torch::kUInt8).clone().to(device_);
+            mainData.maskLength = torch::from_blob(
+                res[1].data(),
+                std::vector<int64_t>{numVecsProcessed},
+                torch::TensorOptions().dtype(torch::kUInt8)
+            ).clone().to(device_);
 
             // coeffInt
             int64_t nUniqueVals = metaData.uniqueVals.size(0);
@@ -2013,6 +2026,7 @@ MainData PCACompressor::decompressLossless(
         if (ZSTD_isError(sz))
             throw std::runtime_error("process_mask decompression failed");
     }
+    int64_t numVecsProcessed = countPackedBits(processMaskVec, metaData.nVec);
     mainData.processMask = BitUtils::bytesToBits(processMaskVec, metaData.nVec).to(device_);
     offset += compressedSizes[0];
 
@@ -2031,7 +2045,6 @@ MainData PCACompressor::decompressLossless(
     offset += compressedSizes[1];
 
     // maskLength
-    int64_t numVecsProcessed = torch::sum(mainData.processMask).item<int64_t>();
     std::vector<uint8_t> maskLengthVec(numVecsProcessed);
     {
         CHECK_ZSTD_BLOCK("mask_length", offset, compressedSizes[2]);
@@ -2041,8 +2054,11 @@ MainData PCACompressor::decompressLossless(
         if (ZSTD_isError(sz))
             throw std::runtime_error("mask_length decompression failed");
     }
-    mainData.maskLength = torch::from_blob(maskLengthVec.data(),
-        { numVecsProcessed }, torch::kUInt8).clone().to(device_);
+    mainData.maskLength = torch::from_blob(
+        maskLengthVec.data(),
+        std::vector<int64_t>{numVecsProcessed},
+        torch::TensorOptions().dtype(torch::kUInt8)
+    ).clone().to(device_);
     offset += compressedSizes[2];
 
     // coeffInt
@@ -2058,8 +2074,6 @@ MainData PCACompressor::decompressLossless(
     std::vector<uint8_t> coeffIntVec(coeffIntOrigSize);
     {
         CHECK_ZSTD_BLOCK("coeff_int", offset, compressedSizes[3]);
-        auto p   = compressedData.data.data() + offset;
-        auto fsz = ZSTD_getFrameContentSize(p, compressedSizes[3]);
 
         size_t sz = ZSTD_decompress(
             coeffIntVec.data(), coeffIntVec.size(),

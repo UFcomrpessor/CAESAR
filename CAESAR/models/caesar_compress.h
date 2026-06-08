@@ -2,6 +2,7 @@
 
 #include <torch/torch.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
+#include <memory>
 #include <vector>
 #include <string>
 #include "model_cache.h"
