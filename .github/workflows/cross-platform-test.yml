@@ -233,27 +233,42 @@ jobs:
       - name: Install compressai from source
         run: |
           conda activate compress_env
-          $env:TEMP = "C:\T"
-          $env:TMP = "C:\T"
-          New-Item -ItemType Directory -Force -Path C:\T
+
+          # Clone to short path
           git clone https://github.com/InterDigitalInc/CompressAI.git C:\cai
-          cd C:\cai
+          Push-Location C:\cai
 
-          $setup = Get-Content setup.py -Raw
-          $setup = $setup -replace '"-std=c\+\+17"', '"/std:c++17"'
-          $setup = $setup -replace '"-O3"', '"/O2"'
-          Set-Content setup.py $setup
-
+          # Patch GCC flags to MSVC equivalents
           Get-ChildItem -Recurse -Filter "*.py" | ForEach-Object {
-            $content = Get-Content $_.FullName -Raw
+            $content = Get-Content $_.FullName -Raw -Encoding UTF8
             if ($content -match '"-std=c\+\+17"' -or $content -match '"-O3"') {
               $content = $content -replace '"-std=c\+\+17"', '"/std:c++17"'
               $content = $content -replace '"-O3"', '"/O2"'
-              Set-Content $_.FullName $content
+              Set-Content $_.FullName $content -Encoding UTF8
             }
           }
 
-          pip install -e . --no-build-isolation
+          # Set a short temp dir so MSVC output paths don't overflow
+          $env:TEMP = "C:\T"
+          $env:TMP = "C:\T"
+          New-Item -ItemType Directory -Force -Path C:\T
+
+          # Set pip temp dir too
+          $env:PIP_CACHE_DIR = "C:\PC"
+          New-Item -ItemType Directory -Force -Path C:\PC
+
+          # Override MSVC temp output dir
+          $env:CL = "/Fo C:\T\\"
+
+          # Build and install directly from the local patched clone
+          # NO_BUILD_ISOLATION means pip uses the current env, not a fresh one
+          # No version specifier means pip won't go to PyPI
+          pip install --no-build-isolation `
+                      --no-cache-dir `
+                      --ignore-requires-python `
+                      .
+
+          Pop-Location
 
       - name: Install imageio and cmake
         run: |
