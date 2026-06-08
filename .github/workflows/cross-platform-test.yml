@@ -198,6 +198,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Enable long paths
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -228,8 +233,8 @@ jobs:
       - name: Install compressai from source
         run: |
           conda activate compress_env
-          git clone https://github.com/InterDigitalInc/CompressAI.git
-          cd CompressAI
+          git clone https://github.com/InterDigitalInc/CompressAI.git C:\cai
+          cd C:\cai
           pip install -e .
 
       - name: Install imageio and cmake
