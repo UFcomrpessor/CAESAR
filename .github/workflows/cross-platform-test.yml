@@ -233,7 +233,7 @@ jobs:
 
       - name: Install compressai and imageio
         run: |
-          conda run -n compress_env pip install compressai==1.2.6 imageio==2.37.0
+          conda run -n compress_env pip install --only-binary=:all: compressai==1.2.6 imageio==2.37.0
 
       - name: Install cmake and zstd
         run: |
