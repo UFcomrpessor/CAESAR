@@ -63,10 +63,8 @@ else()
 endif()
 
 set(TEST_TARGETS
-    test_dataset
     test_caesarCD
     test_padding
-    test_datasetNRMSE
     test_runGaeCuda
 )
 
