@@ -191,8 +191,8 @@ jobs:
     runs-on: windows-latest
 
     env:
-      CAESAR_MODEL_DIR: ${{ github.workspace }}\exported_model
-      
+      CAESAR_MODEL_DIR: ${{ github.workspace }}/exported_model
+
     defaults:
       run:
         shell: pwsh
