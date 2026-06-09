@@ -233,12 +233,10 @@ jobs:
 
       - name: Install compressai and imageio
         run: |
-          # Move all temp to D: drive - short paths, avoids MSVC C1083
           $env:TEMP = "D:\T"
           $env:TMP = "D:\T"
           New-Item -ItemType Directory -Force -Path D:\T
 
-          # Clone to short path on D: drive
           git clone https://github.com/InterDigitalInc/CompressAI.git D:\cai
           Push-Location D:\cai
 
@@ -251,6 +249,20 @@ jobs:
               Set-Content $_.FullName $content -Encoding UTF8
             }
           }
+
+          # Install build dependencies first
+          conda run -n compress_env python -m pip install pybind11 wheel setuptools
+
+          # Build wheel locally
+          conda run -n compress_env python setup.py bdist_wheel --dist-dir D:\cai\dist
+
+          # Install from local wheel
+          $wheel = Get-ChildItem D:\cai\dist\compressai-*.whl | Select-Object -First 1
+          conda run -n compress_env python -m pip install $wheel.FullName
+
+          Pop-Location
+
+          conda run -n compress_env python -m pip install imageio==2.37.0
 
           # Build wheel into local dist/ folder - never extracts to pip temp
           conda run -n compress_env python setup.py bdist_wheel --dist-dir D:\cai\dist
