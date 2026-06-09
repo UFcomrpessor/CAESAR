@@ -278,14 +278,16 @@ jobs:
           $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" `
             -latest -property installationPath
           $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          $python = (conda run -n compress_env python -c "import sys; print(sys.executable)").Trim()
+          Write-Host "Using python: $python"
 
-          cmd /c "`"$vcvars`" && conda run -n compress_env python CAESAR_compressor.py cpu"
+          cmd /c "`"$vcvars`" && `"$python`" CAESAR_compressor.py cpu"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          cmd /c "`"$vcvars`" && conda run -n compress_env python CAESAR_hyper_decompressor.py cpu"
+          cmd /c "`"$vcvars`" && `"$python`" CAESAR_hyper_decompressor.py cpu"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          cmd /c "`"$vcvars`" && conda run -n compress_env python CAESAR_decompressor.py cpu"
+          cmd /c "`"$vcvars`" && `"$python`" CAESAR_decompressor.py cpu"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure CMake
