@@ -124,11 +124,6 @@ torch::Tensor restore_from_5d(torch::Tensor& padded_5d,
   flat = torch::Tensor();
   trimmed = torch::Tensor();
 
-  if (!info.was_padded) {
-    std::cout << "Restore: Trimmed and reshaped to original shape\n";
-  } else {
-    std::cout << "Restore: Unpadded and reshaped back to original shape\n";
-  }
 
   return restored;
 }
