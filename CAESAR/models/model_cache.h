@@ -122,12 +122,26 @@ private:
     ModelCache() = default;
     ~ModelCache() = default;
 
+    // void load_compressor_model() {
+    //     compressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
+    //         get_model_file("caesar_compressor.pt2").generic_string()
+    //     );
+    //     compressor_model_loaded_ = true;
+    // }
+    // for debuging
     void load_compressor_model() {
-        compressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-            get_model_file("caesar_compressor.pt2").generic_string()
+    auto model_path = get_model_file("caesar_compressor.pt2");
+
+    std::cout << "[MODEL] path = " << model_path << std::endl;
+    std::cout << "[MODEL] exists = " << fs::exists(model_path) << std::endl;
+
+    compressor_model_ =
+        std::make_unique<torch::inductor::AOTIModelPackageLoader>(
+            model_path.generic_string()
         );
-        compressor_model_loaded_ = true;
-    }
+
+    compressor_model_loaded_ = true;
+}
 
     void load_hyper_decompressor_model() {
         hyper_decompressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
