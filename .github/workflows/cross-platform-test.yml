@@ -181,6 +181,19 @@ jobs:
 
           ./test_padding
 
+      - name: Run test_LBRC
+        shell: bash
+        run: |
+          cd build/tests
+          chmod +x test_LBRC || true
+
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            export DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib:$DYLD_LIBRARY_PATH
+            export OMP_NUM_THREADS=1
+          fi
+
+          ./test_LBRC
+
       - name: Check test results
         shell: bash
         run: |
@@ -267,10 +280,16 @@ jobs:
           conda install -n compress_env -y -c conda-forge cmake zstd
 
       - name: Download pretrained models
-        shell: bash
         run: |
-          chmod +x download_models.sh || true
-          ./download_models.sh
+          New-Item -ItemType Directory -Force -Path pretrained | Out-Null
+          $url = "https://huggingface.co/E53klasky/UFL_CAESAR_MODELS/resolve/main/caesar_v.pt"
+          $out = "pretrained/caesar_v.pt"
+          Write-Host "Downloading caesar_v.pt from Hugging Face..."
+          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+          $size = (Get-Item $out).Length
+          Write-Host "caesar_v.pt size: $size bytes"
+          if ($size -lt 1MB) { Write-Error "Model file too small - likely an error page"; exit 1 }
+          Write-Host "Download successful."
 
       - name: Verify torch install
         run: |
@@ -292,6 +311,34 @@ jobs:
 
           cmd /c "`"$vcvars`" && `"$python`" CAESAR_decompressor.py cpu"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify exported models
+        run: |
+          Write-Host "=== Contents of exported_model/ ==="
+          Get-ChildItem -Path "${{ github.workspace }}/exported_model" | ForEach-Object {
+            Write-Host ("{0,-50} {1,10} bytes" -f $_.Name, $_.Length)
+          }
+          $required = @(
+            "caesar_compressor.pt2",
+            "caesar_hyper_decompressor.pt2",
+            "caesar_decompressor.pt2",
+            "vbr_quantized_cdf.bin",
+            "vbr_cdf_length.bin",
+            "vbr_offset.bin",
+            "gs_quantized_cdf.bin",
+            "gs_cdf_length.bin",
+            "gs_offset.bin"
+          )
+          $missing = $false
+          foreach ($f in $required) {
+            $p = "${{ github.workspace }}/exported_model/$f"
+            if (!(Test-Path $p) -or (Get-Item $p).Length -eq 0) {
+              Write-Host "MISSING or EMPTY: $f"
+              $missing = $true
+            }
+          }
+          if ($missing) { exit 1 }
+          Write-Host "All required model files present."
 
       - name: Configure CMake
         run: |
@@ -333,6 +380,12 @@ jobs:
         run: |
           Push-Location build/tests/Debug
           .\test_padding.exe
+          Pop-Location
+
+      - name: Run test_LBRC
+        run: |
+          Push-Location build/tests/Debug
+          .\test_LBRC.exe
           Pop-Location
 
       - name: Check test results
