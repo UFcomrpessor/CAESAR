@@ -124,7 +124,7 @@ private:
 
     // void load_compressor_model() {
     //     compressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-    //         get_model_file("caesar_compressor.pt2").generic_string()
+    //         get_model_file("caesar_compressor.pt2").string()
     //     );
     //     compressor_model_loaded_ = true;
     // }
@@ -137,7 +137,7 @@ private:
 
     compressor_model_ =
         std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-            model_path.generic_string()
+            model_path.string()
         );
 
     compressor_model_loaded_ = true;
@@ -145,14 +145,14 @@ private:
 
     void load_hyper_decompressor_model() {
         hyper_decompressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-            get_model_file("caesar_hyper_decompressor.pt2").generic_string()
+            get_model_file("caesar_hyper_decompressor.pt2").string()
         );
         hyper_decompressor_model_loaded_ = true;
     }
 
     void load_decompressor_model() {
         decompressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-            get_model_file("caesar_decompressor.pt2").generic_string()
+            get_model_file("caesar_decompressor.pt2").string()
         );
         decompressor_model_loaded_ = true;
     }
