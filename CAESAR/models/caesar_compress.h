@@ -1,12 +1,19 @@
 #pragma once
 #include "lbrc.h"
-#include <torch/torch.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
-#include <vector>
-#include <string>
 #include "model_cache.h"
 #include "array_utils.h"
 #include "../dataset/dataset.h"
+#include "range_coder/rans_coder.hpp"
+#include "runGaeCuda.h" 
+#include "model_utils.h"
+#include <fstream>
+#include <cmath>
+#include <limits>
+#include <utility>
+#ifdef USE_CUDA
+#include <c10/cuda/CUDACachingAllocator.h>
+#endif
 
 
 

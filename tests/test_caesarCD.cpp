@@ -224,15 +224,15 @@ int main() {
 
     raw = torch::Tensor();
 
-    torch::Device compression_device = torch::Device(torch::kCPU);
-    torch::Device decompression_device = torch::Device(torch::kCPU);
+    torch::Device compression_device = torch::Device(torch::kCUDA);
+    torch::Device decompression_device = torch::Device(torch::kCUDA);
 
     std::cout << "\n===== COMPRESSION =====\n";
     Compressor compressor(compression_device);
 
     DatasetConfig config;
     config.memory_data = raw_5d;
-    config.device = torch::Device(torch::kCPU);
+    config.device = torch::Device(torch::kCUDA);
     config.variable_idx = 0;
     config.n_frame = n_frame;
     config.dataset_name = "TCf48 Dataset";
