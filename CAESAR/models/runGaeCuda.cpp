@@ -959,7 +959,7 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
 
     torch::Tensor processMaskBytes = BitUtils::bitsToBytes(mainData.processMask.to(torch::kUInt8));
     torch::Tensor prefixMaskBytes  = BitUtils::bitsToBytes(mainData.prefixMask.to(torch::kUInt8));
-    torch::Tensor maskLengthBytes  = serializeTensor(mainData.maskLength);
+    torch::Tensor maskLengthBytes = mainData.maskLength.contiguous().view(torch::kUInt8);
 
     torch::Tensor coeffIntConverted;
     int64_t nUniqueVals = metaData.uniqueVals.size(0);
@@ -969,8 +969,7 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
         coeffIntConverted = mainData.coeffInt.to(torch::kInt16);
     else
         coeffIntConverted = mainData.coeffInt.to(torch::kInt32);
-    torch::Tensor coeffIntBytes = serializeTensor(coeffIntConverted);
-
+    torch::Tensor coeffIntBytes = coeffIntConverted.contiguous().view(torch::kUInt8);
     const int compressionLevel = 3;
 
     size_t raw_process_mask_bytes = (size_t)processMaskBytes.numel();
@@ -993,12 +992,11 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
     {
 
         // processMask/prefixMask are already on GPU (from bitsToBytes).
-        // maskLength/coeffInt come from serializeTensor (CPU) — move to GPU for the batch.
         std::vector<torch::Tensor> inputs = {
             processMaskBytes.contiguous(),
             prefixMaskBytes.contiguous(),
-            maskLengthBytes.to(device_).contiguous(),
-            coeffIntBytes.to(device_).contiguous()
+            maskLengthBytes.contiguous(),
+            coeffIntBytes.contiguous()
         };
 
         auto batchResults = nvcomp_batch_compress(inputs);
@@ -1075,19 +1073,24 @@ PCACompressor::compressLossless(const MetaData& metaData , const MainData& mainD
             return compSize;
         };
 
+
         torch::Tensor pmbCpu  = processMaskBytes.cpu().contiguous();
         torch::Tensor pfmbCpu = prefixMaskBytes.cpu().contiguous();
+        torch::Tensor mlbCpu  = maskLengthBytes.cpu().contiguous();
+        torch::Tensor cibCpu  = coeffIntBytes.cpu().contiguous();
+        
         processMaskBytes = torch::Tensor();
         prefixMaskBytes  = torch::Tensor();
+        maskLengthBytes  = torch::Tensor();
+        coeffIntBytes    = torch::Tensor();
 
         const int workers = get_allocated_cores();
-        std::cout << "Using " << workers << " threads for zstd compression\n";
 
         std::vector<uint8_t> pmc, pfmc, mlc, cic;
         size_t processMaskCompSize = zstd_compress_mt(pmbCpu,         pmc, compressionLevel, workers);
         size_t prefixMaskCompSize  = zstd_compress_mt(pfmbCpu,        pfmc, compressionLevel, workers);
-        size_t maskLengthCompSize  = zstd_compress_mt(maskLengthBytes, mlc, compressionLevel, workers);
-        size_t coeffIntCompSize    = zstd_compress_mt(coeffIntBytes,   cic, compressionLevel, workers);
+        size_t maskLengthCompSize  = zstd_compress_mt(mlbCpu,   mlc, compressionLevel, workers);
+        size_t coeffIntCompSize    = zstd_compress_mt(cibCpu,   cic, compressionLevel, workers);
 
         maskLengthBytes = torch::Tensor();
         coeffIntBytes   = torch::Tensor();
@@ -1307,25 +1310,6 @@ MainData PCACompressor::decompressLossless(
     mainData.coeffInt = mainData.coeffInt.to(device_);
 
     return mainData;
-}
-
-
-// todo remove this to be better
-torch::Tensor PCACompressor::toCPUContiguous(const torch::Tensor& tensor) {
-    return tensor.cpu().contiguous();
-}
-
-torch::Tensor PCACompressor::serializeTensor(const torch::Tensor& tensor) {
-    auto cpuTensor = toCPUContiguous(tensor);
-    return cpuTensor.view(torch::kUInt8).contiguous();
-}
-
-torch::Tensor PCACompressor::deserializeTensor(const std::vector<uint8_t>& bytes ,
-    const std::vector<int64_t>& shape ,
-    torch::ScalarType dtype) {
-    auto tensor = torch::empty(shape , dtype);
-    std::memcpy(tensor.data_ptr() , bytes.data() , bytes.size());
-    return tensor;
 }
 
 void PCACompressor::cleanupGPUMemory() {
