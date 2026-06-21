@@ -187,6 +187,7 @@ size_t calculate_metadata_size(const CompressionResult& result) {
 }
 
 int main() {
+   std::cout.setf(std::ios::unitbuf);
   try {
     
     std::set_terminate([]() {
