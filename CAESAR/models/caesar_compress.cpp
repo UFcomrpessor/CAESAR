@@ -164,29 +164,18 @@ Compressor::Compressor(torch::Device device) : device_(device) {
 }
 
 void Compressor::load_models() {
-    std::cout << "[MODEL] Loading compressor model...\n";
     compressor_model_          = ModelCache::instance().get_compressor_model();
-    std::cout << "[MODEL] Loading hyper decompressor model...\n";
     hyper_decompressor_model_  = ModelCache::instance().get_hyper_decompressor_model();
-    std::cout << "[MODEL] Loading decompressor model...\n";
     decompressor_model_        = ModelCache::instance().get_decompressor_model();
-    std::cout << "[MODEL] All models loaded.\n";
 }
 
 void Compressor::load_probability_tables() {
     vbr_quantized_cdf_ = ModelCache::instance().get_vbr_quantized_cdf();
-    std::cout << "[MODEL] Loaded VBR quantized CDF.\n";
     vbr_cdf_length_    = ModelCache::instance().get_vbr_cdf_length();
-    std::cout << "[MODEL] Loaded VBR CDF length.\n";
     vbr_offset_        = ModelCache::instance().get_vbr_offset();
-    std::cout << "[MODEL] Loaded VBR offset.\n";
     gs_quantized_cdf_  = ModelCache::instance().get_gs_quantized_cdf();
-    std::cout << "[MODEL] Loaded GS quantized CDF.\n";
     gs_cdf_length_     = ModelCache::instance().get_gs_cdf_length();
-    std::cout << "[MODEL] Loaded GS CDF length.\n";
     gs_offset_         = ModelCache::instance().get_gs_offset();
-    std::cout << "[MODEL] Loaded GS offset.\n";
-    std::cout << "[MODEL] All probability tables loaded.\n";
 }
 
 CompressionResult Compressor::compress(const DatasetConfig& config,
@@ -400,12 +389,12 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
     });
   }
   for (auto& t : threads) t.join();
-  int64_t total = cpu_latent_indexes.size(0);
-result.latent_indexes.resize(total);
-for (int64_t j = 0; j < total; ++j) {
-    result.latent_indexes[j] = tensor_to_vector<int32_t>(
-        cpu_latent_indexes.select(0, j).reshape(-1));
-}
+//   int64_t total = cpu_latent_indexes.size(0);
+// result.latent_indexes.resize(total);
+// for (int64_t j = 0; j < total; ++j) {
+//     result.latent_indexes[j] = tensor_to_vector<int32_t>(
+//         cpu_latent_indexes.select(0, j).reshape(-1));
+// }
 
 
   if (!result.compressionMetaData.filtered_blocks.empty()) {

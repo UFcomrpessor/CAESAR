@@ -14,8 +14,16 @@ public:
 
 
     static ModelCache& instance() {
+#ifdef _WIN32
+        // AOTIModelPackageLoader's destructor crashes during Windows process
+        // teardown. Intentionally leak the singleton so it is never destructed;
+        // the OS reclaims everything on process exit.
+        static ModelCache* instance_ptr = new ModelCache();
+        return *instance_ptr;
+#else
         static ModelCache instance;
         return instance;
+#endif
     }
 
     void clear() {
@@ -122,43 +130,23 @@ private:
     ModelCache() = default;
     ~ModelCache() = default;
 
-    // void load_compressor_model() {
-    //     compressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-    //         get_model_file("caesar_compressor.pt2").string()
-    //     );
-    //     compressor_model_loaded_ = true;
-    // }
-    // for debuging
     void load_compressor_model() {
     auto model_path = get_model_file("caesar_compressor.pt2");
-
-    std::cout << "[MODEL] path = " << model_path << std::endl;
-    std::cout << "[MODEL] exists = " << fs::exists(model_path) << std::endl;
 
     compressor_model_ =
         std::make_unique<torch::inductor::AOTIModelPackageLoader>(
             model_path.string()
         );
-        std::cout << "[MODEL] Loaded compressor model from " << model_path << std::endl;
 
     compressor_model_loaded_ = true;
 }
 
-    // void load_hyper_decompressor_model() {
-    //     hyper_decompressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-    //         get_model_file("caesar_hyper_decompressor.pt2").string()
-    //     );
-    //     hyper_decompressor_model_loaded_ = true;
-    // }
     void load_hyper_decompressor_model() {
     auto model_path = get_model_file("caesar_hyper_decompressor.pt2");
-    std::cout << "[MODEL] hyper path = " << model_path << std::endl;
-    std::cout << "[MODEL] hyper exists = " << fs::exists(model_path) << std::endl;
 
     hyper_decompressor_model_ = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
         model_path.string()
     );
-    std::cout << "[MODEL] Loaded hyper decompressor model from " << model_path << std::endl;
     hyper_decompressor_model_loaded_ = true;
 }
 
