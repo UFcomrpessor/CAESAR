@@ -364,13 +364,17 @@ int main() {
       std::cout << "\n  TEST PASSED: Compression and decompression completed successfully!\n";
     } else {
       std::cerr << "\n  TEST FAILED: Decompressed data does not match original within acceptable error bounds.\n";
+#ifndef _WIN32
       ModelCache& cache = ModelCache::instance();
       cache.clear();
+#endif
       return 1;
     }
 
+#ifndef _WIN32
     ModelCache& cache = ModelCache::instance();
     cache.clear();
+#endif
     return 0;
 
   } catch (const std::exception& e) {
