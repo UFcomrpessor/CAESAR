@@ -443,7 +443,7 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
 #endif
 
     // ---- LBRC path hard coded for now !!!!!!!!!!!!!!!!!!!!  ---------------------------------------------------------
-    result.use_lbrc = true;  // hard-coded later add logic for the rel eb to make this make more else and change the decine
+    result.use_lbrc = false;  // hard-coded later add logic for the rel eb to make this make more else and change the decine
     // hard code for the cpu
 
     if (result.use_lbrc) {
