@@ -19,6 +19,15 @@
 #include "models/caesar_compress.h"
 #include "models/caesar_decompress.h"
 
+
+static void set_env_var(const std::string& key, const std::string& value) {
+#ifdef _WIN32
+    _putenv_s(key.c_str(), value.c_str());
+#else
+    setenv(key.c_str(), value.c_str(), 1);
+#endif
+}
+
 void save_complete_metadata(const std::string& filename,
                             const PaddingInfo& padding_info,
                             const CompressionResult& comp) {
@@ -663,7 +672,7 @@ int compress_file(const std::string& input_file,
       output_file.empty() ? input_file + ".cae" : output_file;
 
   if (correction_method == "nglr") {
-    setenv("CAESAR_NGLR_MODEL_PATH", (base_output + ".pt").c_str(), 1);
+    set_env_var("CAESAR_NGLR_MODEL_PATH", base_output + ".pt");
   }
 
   auto start_time_c = std::chrono::high_resolution_clock::now();
@@ -757,7 +766,7 @@ int decompress_file(const std::string& input_base,
   comp.encoded_hyper_latents = loaded_hyper;
 
   if (comp.use_nglr && comp.nglrMetaData.nglr_correction_occur) {
-    setenv("CAESAR_NGLR_MODEL_PATH", (input_base + ".pt").c_str(), 1);
+    set_env_var("CAESAR_NGLR_MODEL_PATH", input_base + ".pt");
   }
 
   auto start_time_d = std::chrono::high_resolution_clock::now();
