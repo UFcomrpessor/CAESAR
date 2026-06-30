@@ -161,6 +161,7 @@ std::vector<T> tensor_to_vector(const torch::Tensor& tensor) {
 Compressor::Compressor(torch::Device device) : device_(device) {
     load_models();
     load_probability_tables();
+    load_text_files();
 }
 
 void Compressor::load_models() {
@@ -178,11 +179,17 @@ void Compressor::load_probability_tables() {
     gs_offset_         = ModelCache::instance().get_gs_offset();
 }
 
+// todo use this for the device we can cache the rest for adios
+void Compressor::load_text_files(){
+    model_name_   = ModelCache::instance().get_model_name();
+    device_type_   =  ModelCache::instance().get_model_device();
+}
+
 CompressionResult Compressor::compress(const DatasetConfig& config,
                                         int batch_size, float rel_eb,const std::string& correction_method) {
   c10::InferenceMode guard;
 
-  ScientificDataset dataset(config);
+  ScientificDataset dataset(config, device_);
 
   CompressionResult result;
 
@@ -393,13 +400,6 @@ CompressionResult Compressor::compress(const DatasetConfig& config,
     result.encoded_hyper_latents.clear();
   }
 
-//   int64_t total = cpu_latent_indexes.size(0);
-// result.latent_indexes.resize(total);
-// for (int64_t j = 0; j < total; ++j) {
-//     result.latent_indexes[j] = tensor_to_vector<int32_t>(
-//         cpu_latent_indexes.select(0, j).reshape(-1));
-// }
-
   if (!result.compressionMetaData.filtered_blocks.empty()) {
     const int64_t V =
         static_cast<int64_t>(result.compressionMetaData.data_input_shape[0]);
@@ -601,6 +601,7 @@ if (correction_method == "gae") {
 
     return result;
 }
+
 if (correction_method == "nglr") {
     std::cout << "Using NGLR correction" << std::endl;
 
@@ -643,6 +644,7 @@ if (correction_method == "nglr") {
 
     return result;
 }
+
 throw std::runtime_error(
     "Unknown correction method: " + correction_method
 );
